@@ -1,5 +1,7 @@
 # GrowingMatrix — give it a need; watch it grow
 
+![pic](pic.png)
+
 **[Open the live browser laboratory](https://anttiluode.github.io/GrowingMatrix/)** · [Unruh precursor](https://github.com/anttiluode/Unruh)
 
 An interactive, entirely client-side mathematical laboratory for **task-dependent network growth**. Give the same initially weak conducting lattice different demands, and it recruits different connections. You can change the task, retain its learned structure, cut edges, place terminals by clicking nodes, watch the training/held-out objectives, and measure the operator seen by external ports.
