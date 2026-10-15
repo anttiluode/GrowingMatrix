@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#09131c">
-  <meta name="description" content="GrowingMatrix — a live mathematical laboratory where networks grow for a need. Route, branch, detour, and learn.">
+  <meta name="description" content="GrowingMatrix — a live mathematical laboratory where networks grow for a need. Route, branch, detour, transfer, and attention.">
   <title>GrowingMatrix — a need becomes a network</title>
   <link rel="stylesheet" href="styles.css">
   <script type="module" src="app.js"></script>
@@ -26,14 +26,23 @@
   <section class="workbench">
    <aside class="controls">
     <div class="section-head"><span>01</span><h2>Define the need</h2></div>
-    <p class="helper">Same initial lattice. Four different reasons to grow.</p>
+    <p class="helper">Same candidate lattice. Five different reasons to grow.</p>
     <div class="preset-list" role="group" aria-label="Choose growth need">
      <button class="preset active" data-preset="bridge"><span class="preset-icon">↗</span><span class="preset-desc"><strong>Bridge</strong><small>Connect one source to one destination</small></span><span class="radio-dot"></span></button>
      <button class="preset" data-preset="fork"><span class="preset-icon">⑂</span><span class="preset-desc"><strong>Fork</strong><small>Serve two destinations with shared material</small></span><span class="radio-dot"></span></button>
      <button class="preset" data-preset="detour"><span class="preset-icon">⌁</span><span class="preset-desc"><strong>Detour</strong><small>Find a route around missing substrate</small></span><span class="radio-dot"></span></button>
      <button class="preset" data-preset="transfer"><span class="preset-icon">⋈</span><span class="preset-desc"><strong>Learn transfer</strong><small>Match target output voltages by local credit</small></span><span class="radio-dot"></span></button>
+     <button class="preset" data-preset="attention"><span class="preset-icon">⤳</span><span class="preset-desc"><strong>Learn attention</strong><small>Spatial query→key current splitting</small></span><span class="radio-dot"></span></button>
     </div>
     <label class="check-row"><input id="preserve" type="checkbox"><span>Keep grown structure when changing need</span></label>
+    <div id="attentionControls" class="attention-controls" hidden>
+      <div class="tiny-heading">GATE 5 · ATTENTION OPERATOR</div>
+      <label for="attentionTask">Target attention pattern</label>
+      <select id="attentionTask"><option value="mirror">Mirror (reverse)</option><option value="shift">Shift (directed cycle)</option><option value="duplicate">Duplicate (fixed tokens)</option></select>
+      <label for="attentionLayout">Physical layout</label>
+      <select id="attentionLayout"><option value="two">Two-port · query / key separated</option><option value="single">Single-port · co-located</option></select>
+      <p>The teacher is a fixed 8×8 matrix, not learned token-conditioned attention. The same material budget constrains the planar lattice.</p>
+    </div>
     <div class="sep-line"></div>
     <div class="section-head"><span>02</span><h2>Grow &amp; intervene</h2></div>
     <div class="slider-line"><label for="budget">Material budget</label><output id="budgetValue">24%</output></div>
@@ -61,17 +70,22 @@
    <aside class="inspector">
     <div class="section-head"><span>04</span><h2>Does it work?</h2></div>
     <div class="metric primary-metric"><span>TRAINING OBJECTIVE <span class="metric-arrow">↓ LOWER IS BETTER</span></span><div id="trainValue">—</div><small id="trainName">Effective resistance</small></div>
-    <div class="stat-grid"><div class="metric"><span>HELD-OUT</span><div id="testValue">—</div><small>Unseen inputs</small></div><div class="metric"><span>UNIFORM CONTROL</span><div id="baselineValue">—</div><small>Same material</small></div></div>
+    <div class="stat-grid"><div class="metric"><span>HELD-OUT</span><div id="testValue">—</div><small id="testCaption">Unseen inputs</small></div><div class="metric"><span>UNIFORM CONTROL</span><div id="baselineValue">—</div><small>Same material</small></div></div>
     <div class="advantage"><span>VS MATCHED UNIFORM</span><strong id="advantage">—</strong></div>
     <div class="hairline"></div>
     <div class="minititle">GROWTH HISTORY <span>TRAIN vs CONTROL</span></div>
     <canvas id="history" aria-label="Growth objective history chart"></canvas>
     <div class="minititle matrixtitle">EFFECTIVE RESPONSE <span>8 PORTS × 8 PORTS</span></div>
+    <label class="matrix-choice" id="matrixChoice" hidden>Matrix view
+      <select id="matrixMode"><option value="current">Measured current split</option><option value="teacher">Target attention</option><option value="single">Single-port readout</option><option value="reciprocal">Symmetric voltage response</option></select>
+    </label>
     <canvas id="matrix" aria-label="Measured external Green response matrix"></canvas>
-    <p class="matrix-caption">Every cell is measured through the entire network. It changes even though the external ports stay fixed.</p>
+    <p class="matrix-caption" id="matrixCaption">Every cell is measured through the entire network. It changes even though the external ports stay fixed.</p>
+    <div id="attentionMetrics" class="attention-metrics" hidden></div>
     <div class="material"><div><span>RECRUITED EDGES</span><strong id="activeValue">0</strong></div><div><span>MATERIAL USED</span><strong id="massValue">0%</strong></div></div>
     <div class="budget-track"><div id="budgetBar"></div></div>
-    <button class="bench-button" id="benchmark">▤ &nbsp;Benchmark all four needs</button>
+    <button class="bench-button" id="benchmark">▤ &nbsp;Benchmark original four needs</button>
+    <button class="bench-button" id="attentionBenchmark" hidden>▤ &nbsp;Compare three attention targets</button>
     <div id="benchmarkResults" class="benchmark-results" aria-live="polite"></div>
    </aside>
   </section>

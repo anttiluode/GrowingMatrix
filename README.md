@@ -11,7 +11,7 @@ No frameworks, no backend, no third-party scripts, no data uploads. The pre-exis
 ## What to try
 
 1. Open the [live site](https://anttiluode.github.io/GrowingMatrix/) or serve locally with `python -m http.server 8000` and open `http://localhost:8000/` (ES modules require HTTP rather than opening `index.html` directly).
-2. Choose **Bridge**, **Fork**, **Detour**, or **Learn transfer**. Leave **Keep grown structure** off for independent initial conditions, or turn it on to test adaptation to changed needs.
+2. Choose **Bridge**, **Fork**, **Detour**, **Learn transfer**, or **Learn attention**. Leave **Keep grown structure** off for independent initial conditions, or turn it on to test adaptation to changed needs.
 3. Press **Pause growth**, **+40 steps**, **Cut strongest edge**, or **Reset**. In routing modes, choose **Place source** or **Place sink**, then click a lattice node. A damaged connection stays broken until reset.
 4. Inspect the held-out objective against a **uniform material-matched control**, growth history, and the **8×8 external response matrix**. Download a JSON snapshot of every edge and its learned conductance.
 5. Press **Benchmark all four needs** to run controlled 240-step experiments without altering the current simulation.
@@ -112,3 +112,59 @@ Different tasks have different objectives (resistance for routing, squared outpu
 - Cuts are permanent until reset and may isolate portions of the graph. Only designated terminal configurations are evaluated; the demo is not a proof of damage recovery.
 
 **Proposed Gate 2:** let tip cells extend into empty space and allocate material between node birth, edge growth, and strengthening under a finite budget. Test whether genuinely new topologies outperform merely reweighting an existing dense candidate lattice at equal material and compute. **Gate 3:** replace passive fields with dynamical fast waves so development can acquire recurrent state and temporal memory (the Unruh connection).
+
+## Gate 5: Grow an attention operator on a planar lattice
+
+This experiment follows the [Limasieni](https://github.com/anttiluode/Limasieni) result that unrestricted separate query/key ports can express arbitrary strictly positive attention rows, while a reciprocal single-port absorber has reversibility and maximum-principle restrictions.
+
+**GrowingMatrix adds the missing spatial restriction.** Eight query terminals and eight key terminals interact through the existing 17×11 locally connected candidate lattice and the existing length-weighted conductance budget. Choose **Learn attention** on the site, then target **Mirror**, **Shift**, or **Duplicate**. Toggle **Two-port** (query left, key grounded right) and **Single-port** (query and key co-located left), with optional retention of material across task changes.
+
+The current-fraction readout is not the same as the original port-voltage response. With shunt conductances \(s_j\) at key nodes, define
+
+\[
+M(h)=B\operatorname{diag}(g_0+h)B^\top+\operatorname{diag}(s), \quad
+M(h)v^{(i)}=e_{q_i}, \quad
+A_{ij}=s_jv^{(i)}_{k_j}.
+\]
+
+All injected current must leave at one of the eight sinks, so each attention row sums to one. Despite reciprocal underlying conductances, the **cross-port current-split matrix can be asymmetric**. The same-node single-port Green response remains symmetric and obeys the maximum principle.
+
+We specify one **fixed** row-stochastic teacher attention matrix \(T\) per task. Mirror and shift are near-permutations with a small nonzero tail; duplicate uses one fixed example of repeated token values, with softer/mixed rows. These are **not** attention matrices computed by a transformer for fresh inputs. The growth objective is mean squared row error:
+
+\[
+\mathcal L=\frac{1}{16}\sum_{i,j}(A_{ij}-T_{ij})^2.
+\]
+
+The learner uses an adjoint solve for each injected query. If \(M z^{(i)}=\sum_j\frac{s_j}{8}(A_{ij}-T_{ij})e_{k_j}\), the edge's negative gradient is
+
+\[
+-\frac{\partial\mathcal L}{\partial h_e}=
+\sum_i(v_a^{(i)}-v_b^{(i)})(z_a^{(i)}-z_b^{(i)}).
+\]
+
+It then uses GrowingMatrix's original projected gradient and material cap. This is supervised adjoint optimization, not spontaneous Physarum discovery.
+
+### What the gates actually show
+
+Run `npm run bench:attention` (240 steps each, deterministic default lattice and settings):
+
+| Fixed attention target | Two-port planar KL ↓ | Single-port planar KL ↓ | Unrestricted bipartite limit |
+|---|---:|---:|---:|
+| Mirror | **1.9322** | 2.9500 | 0 |
+| Shift | **1.7909** | 1.8883 | 0 |
+| Duplicate | **0.5726** | 0.9972 | 0 |
+
+The last column is an *expressivity limit*: 64 independent direct query–key conductances with arbitrarily strong sinks can realize the target rows. It is **not** a spatially or materially matched physical baseline. The planar single and two-port experiments share the **same material budget cap**, but their **actual used material can differ**.
+
+The planar two-port network improves on these separately optimized single-port models but **does not** copy sharp Limasieni-style teacher matrices well. Shared interiors and planar wiring are substantial limitations: mirror and shift retain very high KL, and shift still looks diffuse rather than a permutation. The 240-step setting is a fixed benchmark horizon, not a certificate of global optimality. No node birth occurs.
+
+The browser's four matrix views let you inspect the current-split operator, the target, the co-located control *read from the currently grown material* (not independently retrained), or the old symmetric voltage response. The **Compare three attention targets** button does separately train both layouts. Its **held-out** metric means an alternating ±20% physical sink-conductance perturbation, **not** unseen tokens or contexts.
+
+```sh
+npm test
+npm run bench
+npm run bench:attention
+node attention_benchmark.js 500
+```
+
+**Next gates:** provide real independent crossing layers at matched cost, investigate topology change and node birth, and above all see whether a **single frozen grown medium** can generate input-dependent useful attention without first computing the conventional \(QK^\top\) matrix. Gate 5 does not run a transformer end-to-end.

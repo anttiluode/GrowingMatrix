@@ -1,4 +1,5 @@
-import {createWorld,setNeed,growStep,evaluate,mass,maxMass,aliveEdges,cutStrongEdge,resetGrowth,changeTerminals,snapshot,responseMatrix} from './engine.js';
+import {rowKL,singlePortDiagnostics} from './attention.js';
+import {createWorld,setNeed,growStep,evaluate,mass,maxMass,aliveEdges,cutStrongEdge,resetGrowth,changeTerminals,snapshot,responseMatrix,configureAttention,attentionReadout} from './engine.js';
 const $=q=>document.querySelector(q),$$=q=>Array.from(document.querySelectorAll(q));
 const canvas=$('#network'),ctx=canvas.getContext('2d');
 const historyCanvas=$('#history'),hctx=historyCanvas.getContext('2d');
@@ -7,7 +8,8 @@ const presets={
  bridge:['One path through a field','A source and destination generate current. Helpful edges compete for a limited material supply.','BRIDGE / ONE SOURCE → ONE SINK'],
  fork:['A network that learns to branch','Two different destination demands share the same infrastructure. A fork can save material.','FORK / TWO DEMAND PATTERNS'],
  detour:['A solution around an absence','A block of candidate material is missing. Useful paths must reorganize around it.','DETOUR / FORBIDDEN REGION'],
- transfer:['A network that learns a mapping','Inputs create potential fields. A second, adjoint field gives local edges credit for matching target outputs.','TRANSFER / CLAMPED-ERROR GRADIENT']
+ transfer:['A network that learns a mapping','Inputs create potential fields. A second, adjoint field gives local edges credit for matching target outputs.','TRANSFER / CLAMPED-ERROR GRADIENT'],
+ attention:['Can a planar network grow attention?','Query ports inject current. Key ports drain it. The lattice learns a fixed target attention matrix under a material budget.','ATTENTION / QUERY → KEY CURRENT SPLIT']
 };
 let world=createWorld(),running=true,speed=4,tool='inspect',frame=0,hovered=-1,selected=-1,lastStats=0,lastMatrix=0,operator=null,plot={w:600,h:480,x0:45,y0:45,dx:20,dy:20};
 let toastTimer=null,benchmarkRunning=false;
@@ -18,16 +20,27 @@ function setPreset(p){
  const carry=$('#preserve').checked;
  setNeed(world,p,{keepGrowth:carry});
  $$('.preset').forEach(b=>b.classList.toggle('active',b.dataset.preset===p));
+ $('#attentionControls').hidden=p!=='attention';$('#matrixChoice').hidden=p!=='attention';$('#attentionMetrics').hidden=p!=='attention';$('#attentionBenchmark').hidden=p!=='attention';
+ $('#matrixMode').value='current';$('#attentionTask').value='mirror';$('#attentionLayout').value='two';
  const desc=presets[p];$('#stageTitle').textContent=desc[0];$('#taskExplain').textContent=desc[1];$('#canvasTag').textContent=desc[2];
- $('#trainName').textContent=p==='transfer'?'Mean squared output error':'Effective transport resistance';
- $$('.tool').forEach(b=>b.disabled=p==='transfer'&&b.dataset.tool!=='inspect');
- if(p==='transfer')selectTool('inspect');
+ $('#trainName').textContent=p==='attention'?'Mean squared attention error':p==='transfer'?'Mean squared output error':'Effective transport resistance';
+ $('#testCaption').textContent=p==='attention'?'±20% sink conductance':'Unseen inputs';
+ $$('.tool').forEach(b=>b.disabled=(p==='transfer'||p==='attention')&&b.dataset.tool!=='inspect');
+ if(p==='transfer'||p==='attention')selectTool('inspect');
  operator=null;lastMatrix=0;lastStats=0;selected=-1;renderStats();renderMatrix();
  alertUser(carry?'New need assigned. Existing branches were retained.':'New need assigned. Growth starts from dormant connections.');
 }
 function selectTool(name){tool=name;$$('.tool').forEach(b=>b.classList.toggle('selected',b.dataset.tool===name));$('#hint').textContent=name==='inspect'?'Click any node to inspect its connections.':`Click a node to place the ${name}; the old structure stays.`;}
 $$('.preset').forEach(b=>b.addEventListener('click',()=>setPreset(b.dataset.preset)));
-$$('.tool').forEach(b=>b.addEventListener('click',()=>selectTool(b.dataset.tool)));
+$('.tool').forEach(b=>b.addEventListener('click',()=>selectTool(b.dataset.tool)));
+function changeAttention(){
+ if(world.preset!=='attention')return;
+ configureAttention(world,$('#attentionTask').value,$('#attentionLayout').value,{keepGrowth:$('#preserve').checked});
+ selected=-1;operator=null;renderStats();renderMatrix();alertUser('Attention target/layout updated; '+($('#preserve').checked?'material retained.':'material reset.'));
+}
+$('#attentionTask').addEventListener('change',changeAttention);
+$('#attentionLayout').addEventListener('change',changeAttention);
+$('#matrixMode').addEventListener('change',renderMatrix);
 $('#budget').addEventListener('input',e=>{world.budget=Number(e.target.value)/100;$('#budgetValue').textContent=e.target.value+'%';});
 $('#speed').addEventListener('input',e=>{speed=Number(e.target.value);$('#speedValue').textContent=e.target.value+'×';});
 function setPlaying(v){running=v;$('#play').textContent=v?'Ⅱ   Pause growth':'▶   Resume growth';$('#liveLabel').textContent=v?'GROWING':'PAUSED';}
@@ -38,6 +51,38 @@ $('#cut').addEventListener('click',()=>{const e=cutStrongEdge(world);if(e){rende
 $('#download').addEventListener('click',()=>{
  const text=JSON.stringify(snapshot(world),null,2),blob=new Blob([text],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');
  a.href=url;a.download=`growingmatrix-${world.preset}-step-${world.step}.json`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);alertUser('Downloaded growth parameters and the complete edge matrix.');
+});
+$('#attentionBenchmark').addEventListener('click',async()=>{
+ if(benchmarkRunning)return;
+ benchmarkRunning=true;const btn=$('#attentionBenchmark');btn.disabled=true;
+ const out=$('#benchmarkResults');out.textContent='Comparing planar layouts; this may take several seconds.';
+ const results=[];
+ try{
+  for(const task of ['mirror','shift','duplicate']){
+   for(const layout of ['two','single']){
+    await new Promise(resolve=>setTimeout(resolve,15));
+    const trial=createWorld({preset:'attention',budget:world.budget,rate:world.rate});
+    configureAttention(trial,task,layout);
+    for(let step=0;step<240;step++)growStep(trial);
+    const measured=attentionReadout(trial).matrix;
+    results.push({task,layout,loss:evaluate(trial).loss,kl:rowKL(trial.attention.target,measured),stress:evaluate(trial,{holdout:true}).loss});
+    out.textContent=`Attention benchmark ${results.length}/6 cases completed.`;
+   }
+  }
+  const table=document.createElement('table'),head=document.createElement('thead');
+  head.innerHTML='<tr><th>TARGET</th><th>LAYOUT</th><th>KL ↓</th></tr>';table.append(head);
+  const body=document.createElement('tbody');
+  for(const item of results){
+   const tr=document.createElement('tr');
+   for(const value of [item.task,item.layout,format(item.kl)]){const td=document.createElement('td');td.textContent=value;tr.append(td);}
+   body.append(tr);
+  }
+  table.append(body);out.replaceChildren(table);
+  const p=document.createElement('p');
+  p.textContent='Fixed teacher targets, 240 steps, equal planar material budget caps. Unrestricted direct query–key conductances approach KL=0 but are NOT spatially or material matched. KL is teacher → measured.';
+  out.append(p);
+ }catch(e){out.textContent='Benchmark failed: '+e.message;}
+ finally{benchmarkRunning=false;btn.disabled=false;}
 });
 $('#benchmark').addEventListener('click',async()=>{
  if(benchmarkRunning)return;benchmarkRunning=true;const btn=$('#benchmark');btn.disabled=true;const out=$('#benchmarkResults');out.textContent='Benchmark running — local, deterministic, no server.';
@@ -102,7 +147,9 @@ function draw(){
   if(isActive){ctx.beginPath();ctx.arc(...p,10,0,Math.PI*2);ctx.strokeStyle='#d3fff2';ctx.lineWidth=1;ctx.stroke();}
  }
  const sources=[],sinks=[];
- if(world.preset==='transfer'){
+ if(world.preset==='attention'){
+  sources.push(...world.attention.queries);sinks.push(...world.attention.keys);
+ }else if(world.preset==='transfer'){
   for(let node of world.transfer.inputs)sources.push(node);
   for(let node of world.transfer.outputs)sinks.push(node);
   sinks.push(world.transfer.ground);
@@ -127,8 +174,27 @@ function historyDraw(){
  plotLine('baseline','#d49b6d');plotLine('train','#6ce4cc');cx.fillStyle='#809ca3';cx.font='9px ui-monospace,monospace';cx.textAlign='left';cx.fillText('0',pad.l,h-4);cx.textAlign='right';cx.fillText(String(maxStep),w-12,h-4);
 }
 function renderMatrix(){
- operator=responseMatrix(world);
- const {cx,w,h}=resetCanvas(matrixCanvas),A=operator.values;
+ const attention=world.preset==='attention';
+ const view=attention?$('#matrixMode').value:'reciprocal';
+ let A;
+ if(attention&&view!=='reciprocal'){
+  A=view==='teacher'?world.attention.target:view==='single'?singlePortDiagnostics(world).matrix:attentionReadout(world).matrix;
+  operator={values:A};
+ }else{
+  operator=responseMatrix(world);A=operator.values;
+ }
+ if(attention){
+  const measured=attentionReadout(world).matrix;
+  const diagnostic=singlePortDiagnostics(world);
+  $('#attentionMetrics').textContent=`Teacher→grown KL: ${format(rowKL(world.attention.target,measured))}\nCo-located Green symmetry error: ${diagnostic.symmetry.toExponential(1)}\nCo-located maximum-principle violations: ${diagnostic.rowsAway}/8 rows\nTarget: ${world.attention.task} · layout: ${world.attention.layout}`;
+  $('#matrixCaption').textContent={
+   current:'Current fractions leaving eight grounded key sinks. Rows are query injections; columns are key exits.',
+   teacher:'Requested attention pattern, fixed for the entire growth run.',
+   single:'Co-located query/key ports measured through the SAME grown lattice (not a separately optimized network).',
+   reciprocal:'Original symmetric port-voltage Green response; not a current-split attention matrix.'
+  }[view];
+ }else $('#matrixCaption').textContent='Symmetric grounded Green/voltage response of the grown passive lattice.';
+ const {cx,w,h}=resetCanvas(matrixCanvas);
  cx.clearRect(0,0,w,h);const n=A.length,cell=Math.min((w-42)/n,(h-26)/n),total=n*cell,x0=(w-total)/2,y0=9,max=Math.max(...A.flat()),min=Math.min(...A.flat());
  for(let i=0;i<n;i++)for(let j=0;j<n;j++){
   const v=(A[i][j]-min)/Math.max(1e-10,max-min),r=Math.round(21+45*v),g=Math.round(64+158*v),b=Math.round(73+125*v);
@@ -164,13 +230,13 @@ canvas.addEventListener('pointermove',e=>hovered=pointerNode(e));canvas.addEvent
 canvas.addEventListener('click',e=>{
  const n=pointerNode(e);if(n<0)return;
  if(tool==='inspect'){selected=n;renderStats();return;}
- if(world.preset==='transfer'){alertUser('Terminal editing is available in routing modes.');return;}
+ if(world.preset==='transfer'||world.preset==='attention'){alertUser('Terminal editing is available in routing modes.');return;}
  if(!changeTerminals(world,tool,n)){alertUser('That node cannot be used (blocked, damaged, or already the opposite terminal).');return;}
  selected=n;renderStats();renderMatrix();alertUser(`New ${tool} set to node ${n}. Continuing from current material.`);
 });
 let lastGrow=0,lastDraw=0;
 function tick(t){
- if(running&&!benchmarkRunning&&t-lastGrow>105){try{for(let i=0;i<speed;i++)growStep(world);}catch(err){setPlaying(false);alertUser('Solver error: '+err.message);}lastGrow=t;}
+ if(running&&!benchmarkRunning&&t-lastGrow>105){try{for(let i=0;i<(world.preset==='attention'?Math.min(speed,2):speed);i++)growStep(world);}catch(err){setPlaying(false);alertUser('Solver error: '+err.message);}lastGrow=t;}
  if(t-lastDraw>33){frame++;draw();lastDraw=t;}
  if(t-lastStats>360){renderStats();lastStats=t;}
  if(t-lastMatrix>3500){renderMatrix();lastMatrix=t;}

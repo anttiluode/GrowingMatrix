@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.js",
-    "bench": "node benchmark.js"
+    "bench": "node benchmark.js",
+    "bench:attention": "node attention_benchmark.js"
   },
   "description": "Need-dependent growing conductive networks, no bundler required"
 }

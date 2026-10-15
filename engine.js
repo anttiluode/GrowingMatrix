@@ -1,3 +1,4 @@
+import {makeAttention,setAttention as configureAttention,evaluateAttention,gradientAttention,attentionReadout} from './attention.js';
 /* GrowingMatrix -- deterministic need-driven conductive network laboratory.
  * Passive Kirchhoff field: L(g) v = b, grounded at node r.
  * Routing compliance gradient: -(v_a-v_b)^2.
@@ -5,7 +6,7 @@
  * Adaptive conductances are projected onto a weighted material budget.
  * Dormant edges have a small fixed scaffold conductance: this is *not* node birth.
  */
-export const VERSION = '1.0.0';
+export const VERSION = '1.1.0';
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 const hypot=Math.hypot;
 const square=x=>x*x;
@@ -48,7 +49,7 @@ function makeTeacher(world){
   return wts;
 }
 export function setNeed(world,preset,{keepGrowth=false}={}){
-  if(!['bridge','fork','detour','transfer'].includes(preset))throw new Error('Unknown need');
+  if(!['bridge','fork','detour','transfer','attention'].includes(preset))throw new Error('Unknown need');
   if(world.preset!==preset && ((world.preset==='detour') !== (preset==='detour'))){
     const next=gridGraph(world.graph.w,world.graph.h,{detour:preset==='detour'});
     // Same geometry: carry learned conductances across shared edges, when requested.
@@ -68,8 +69,11 @@ export function setNeed(world,preset,{keepGrowth=false}={}){
   }else if(preset==='detour'){
     world.demands=[route(g,left(mid),right(mid))];
     world.holdout=[route(g,left(mid-1),right(mid-1)),route(g,left(mid+1),right(mid+1))];
+  }else if(preset==='attention'){
+    world.demands=[];world.holdout=[];world.transfer=null;
+    world.attention=makeAttention(world,{task:'mirror',layout:'two'});
   }else{
-    world.demands=[];world.holdout=[];
+    world.demands=[];world.holdout=[];world.attention=null;
     world.transfer={ground:right(mid),inputs:[left(yUpper),left(yLower)],outputs:[right(yUpper),right(yLower)]};
     const teacher=makeTeacher(world);
     const inputs=[[1,0],[0,1],[1,.6],[.6,1]],tests=[[.3,.7],[.8,.25],[.6,.6],[.15,.9]];
@@ -81,6 +85,7 @@ export function setNeed(world,preset,{keepGrowth=false}={}){
     };
     world.demands=inputs.map(create);world.holdout=tests.map(create);
   }
+  if(preset!=='attention')world.attention=null;
   world.preset=preset;world.step=0;world.history=[];world.last=null;
   return world;
 }
@@ -98,6 +103,34 @@ function laplace(g,weights,x,ground,out){
   }
   out[ground]=x[ground];
   return out;
+}
+export function solveShunted(graph,weights,rhs,shunts,{tol=1e-9,maxIter=900}={}){
+ const n=graph.nodes.length;
+ if(rhs.length!==n||shunts.length!==n||weights.length!==graph.edges.length)throw Error('Invalid shunted system');
+ const x=new Float64Array(n),r=Float64Array.from(rhs),d=Float64Array.from(shunts),z=new Float64Array(n),p=new Float64Array(n),Ap=new Float64Array(n);
+ for(let k=0;k<graph.edges.length;k++){
+  const e=graph.edges[k],w=weights[k];if(!Number.isFinite(w)||w<0)throw Error('Invalid edge weight');
+  d[e.a]+=w;d[e.b]+=w;
+ }
+ if(!Array.from(shunts).some(v=>v>0))throw Error('At least one physical sink required');
+ let r0=0,rz=0;
+ for(let i=0;i<n;i++){z[i]=r[i]/Math.max(d[i],1e-12);p[i]=z[i];rz+=r[i]*z[i];r0+=r[i]*r[i];}
+ if(r0===0)return x;
+ for(let step=0;step<maxIter;step++){
+  Ap.fill(0);
+  for(let k=0;k<graph.edges.length;k++){const e=graph.edges[k],q=weights[k]*(p[e.a]-p[e.b]);Ap[e.a]+=q;Ap[e.b]-=q;}
+  for(let i=0;i<n;i++)Ap[i]+=shunts[i]*p[i];
+  let pAp=0;for(let i=0;i<n;i++)pAp+=p[i]*Ap[i];
+  if(!(pAp>0))throw Error('Disconnected or nonpositive network');
+  const alpha=rz/pAp;let rr=0;
+  for(let i=0;i<n;i++){x[i]+=alpha*p[i];r[i]-=alpha*Ap[i];rr+=r[i]*r[i];}
+  if(rr<tol*tol*r0)return x;
+  let next=0;for(let i=0;i<n;i++){z[i]=r[i]/Math.max(d[i],1e-12);next+=r[i]*z[i];}
+  const beta=next/Math.max(rz,1e-80);
+  for(let i=0;i<n;i++)p[i]=z[i]+beta*p[i];
+  rz=next;
+ }
+ throw Error('Shunted network CG did not converge');
 }
 export function solveField(graph,weights,rhs,ground,{tol=1e-9,maxIter=900}={}){
   const n=graph.nodes.length;
@@ -141,6 +174,7 @@ export function sample(world,d,weights=conductances(world)){
   return {v,loss:v[d.source],residual:[]};
 }
 export function evaluate(world,{holdout=false,uniform=false}={}){
+  if(world.preset==='attention')return evaluateAttention(world,{holdout,uniform});
   const items=holdout?world.holdout:world.demands;
   let weights=conductances(world);
   if(uniform){
@@ -172,6 +206,7 @@ function projectBudget(world,z){
   return out;
 }
 export function computeGradient(world){
+  if(world.preset==='attention')return gradientAttention(world);
   const g=world.graph,weights=conductances(world),grad=new Float64Array(g.edges.length);
   let loss=0,vLast=null;
   for(const d of world.demands){
@@ -227,7 +262,7 @@ export function changeTerminals(world,role,node){
   world.history=[];world.step=0;return true;
 }
 export function snapshot(world){return {
-  version:VERSION,preset:world.preset,step:world.step,budget:world.budget,rate:world.rate,seed:world.seed,
+  version:VERSION,preset:world.preset,attention:world.attention?{task:world.attention.task,layout:world.attention.layout,target:world.attention.target}:null,step:world.step,budget:world.budget,rate:world.rate,seed:world.seed,
   dimensions:[world.graph.w,world.graph.h],edges:world.graph.edges.map(e=>({a:e.a,b:e.b,h:+e.h.toFixed(6),broken:e.broken})),
   training_loss:evaluate(world).loss,holdout_loss:evaluate(world,{holdout:true}).loss,
   uniform_matched_loss:evaluate(world,{uniform:true}).loss,material:mass(world),capacity:maxMass(world)
@@ -252,3 +287,5 @@ export function responseMatrix(world){
  }
  return {ports,ground,values:ports.map((_,i)=>ports.map((_,j)=>data[j][i]))};
 }
+
+export {configureAttention,attentionReadout};
